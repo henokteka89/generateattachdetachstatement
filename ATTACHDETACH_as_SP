@@ -1,0 +1,60 @@
+
+ 
+
+CREATE PROC sp_generateattachdetachscript  
+(@namePattern NVARCHAR(128))
+as
+DECLARE @databaseName NVARCHAR(128);
+DECLARE @mdfFile NVARCHAR(260);
+DECLARE @ldfFile NVARCHAR(260);
+DECLARE @sql NVARCHAR(MAX);
+--DECLARE @namePattern NVARCHAR(128) = 'adv%';  -- Replace with your pattern
+
+DECLARE db_cursor CURSOR FOR
+SELECT 
+    name
+FROM 
+    sys.databases
+WHERE 
+    name LIKE @namePattern
+    AND name NOT IN ('master', 'tempdb', 'model', 'msdb');  -- Exclude system databases
+
+OPEN db_cursor;
+FETCH NEXT FROM db_cursor INTO @databaseName;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    -- Get the file paths for the database
+    SELECT 
+        @mdfFile = physical_name
+    FROM 
+        sys.master_files
+    WHERE 
+        type = 0 -- Data file
+        AND database_id = DB_ID(@databaseName);
+    
+    SELECT 
+        @ldfFile = physical_name
+    FROM 
+        sys.master_files
+    WHERE 
+        type = 1 -- Log file
+        AND database_id = DB_ID(@databaseName);
+
+    -- Generate the detach statement
+    SET @sql = 'EXEC sp_detach_db ''' + @databaseName + ''';';
+    PRINT @sql;
+
+    -- Generate the attach statement
+    SET @sql = 'CREATE DATABASE [' + @databaseName + '] ON ' +
+               '(FILENAME = ''' + @mdfFile + '''), ' +
+               '(FILENAME = ''' + @ldfFile + ''') ' +
+               'FOR ATTACH;';
+    PRINT @sql;
+
+    -- Fetch the next database
+    FETCH NEXT FROM db_cursor INTO @databaseName;
+END
+
+CLOSE db_cursor;
+DEALLOCATE db_cursor;
